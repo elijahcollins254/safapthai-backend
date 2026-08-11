@@ -4,4 +4,9 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
     "django>=6.0",
+    "djangorestframework>=3.20",
+    "django-cors-headers>=4.0",
+    "requests>=2.31",
+    "openai>=1.0",
+    "africastalking>=1.0",
 ]
