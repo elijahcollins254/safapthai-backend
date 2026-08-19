@@ -2,9 +2,9 @@ import math
 import re
 from typing import Any
 
+import africastalking
 import openai
 import requests
-from africastalking import initialize as at_initialize, SMS
 from django.conf import settings
 from django.db.models import QuerySet
 from django.http import JsonResponse
@@ -294,9 +294,12 @@ def send_sms_notification(request):
             status=400,
         )
 
-    at_initialize(username=settings.AFRICASTALKING_USERNAME, api_key=settings.AFRICASTALKING_API_KEY)
-    sms = SMS
     try:
+        africastalking.initialize(
+            username=settings.AFRICASTALKING_USERNAME,
+            api_key=settings.AFRICASTALKING_API_KEY,
+        )
+        sms = africastalking.SMS
         send_options = {"message": message.strip(), "recipients": normalized_recipients}
         if settings.AFRICASTALKING_SENDER_ID:
             send_options["from_"] = settings.AFRICASTALKING_SENDER_ID
