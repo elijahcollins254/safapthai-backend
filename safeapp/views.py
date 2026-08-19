@@ -302,7 +302,7 @@ def send_sms_notification(request):
         sms = africastalking.SMS
         send_options = {"message": message.strip(), "recipients": normalized_recipients}
         if settings.AFRICASTALKING_SENDER_ID:
-            send_options["from_"] = settings.AFRICASTALKING_SENDER_ID
+            send_options["sender_id"] = settings.AFRICASTALKING_SENDER_ID
         result = sms.send(**send_options)
         return JsonResponse({"success": True, "recipients": normalized_recipients, "result": result})
     except Exception as exc:
