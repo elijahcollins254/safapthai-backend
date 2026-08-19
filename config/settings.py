@@ -74,11 +74,16 @@ AFRICASTALKING_SENDER_ID = os.environ.get(
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://safepathai-eight.vercel.app",
 ]
 
 frontend_url = os.environ.get("FRONTEND_URL", "")
 if frontend_url:
-    CORS_ALLOWED_ORIGINS.append(frontend_url.rstrip("/"))
+    CORS_ALLOWED_ORIGINS.extend(
+        origin.strip().rstrip("/")
+        for origin in frontend_url.split(",")
+        if origin.strip()
+    )
 
 CORS_ALLOW_CREDENTIALS = True
 
