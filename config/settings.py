@@ -58,13 +58,27 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-AFRICASTALKING_USERNAME = os.environ.get("AFRICASTALKING_USERNAME", "")
-AFRICASTALKING_API_KEY = os.environ.get("AFRICASTALKING_API_KEY", "")
+AFRICASTALKING_USERNAME = os.environ.get(
+    "AFRICASTALKING_USERNAME",
+    os.environ.get("AFRICAS_TALKING_USERNAME", ""),
+)
+AFRICASTALKING_API_KEY = os.environ.get(
+    "AFRICASTALKING_API_KEY",
+    os.environ.get("AFRICAS_TALKING_API_KEY", ""),
+)
+AFRICASTALKING_SENDER_ID = os.environ.get(
+    "AFRICASTALKING_SENDER_ID",
+    os.environ.get("AFRICAS_TALKING_SENDER_ID", ""),
+)
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
+
+frontend_url = os.environ.get("FRONTEND_URL", "")
+if frontend_url:
+    CORS_ALLOWED_ORIGINS.append(frontend_url.rstrip("/"))
 
 CORS_ALLOW_CREDENTIALS = True
 

@@ -1,4 +1,5 @@
 import math
+import re
 from typing import Any
 
 import openai
@@ -270,7 +271,7 @@ def send_sms_notification(request):
     message = data.get("message")
     recipients = data.get("recipients")
 
-    if not message or not recipients:
+    if not isinstance(message, str) or not message.strip() or not isinstance(recipients, list) or not recipients:
         return JsonResponse({"error": "message and recipients are required"}, status=400)
 
     if not settings.AFRICASTALKING_USERNAME or not settings.AFRICASTALKING_API_KEY:
@@ -279,10 +280,27 @@ def send_sms_notification(request):
             status=503,
         )
 
+    normalized_recipients = []
+    for recipient in recipients:
+        if not isinstance(recipient, str):
+            continue
+        normalized = re.sub(r"[\s()-]", "", recipient)
+        if re.fullmatch(r"\+[1-9]\d{7,14}", normalized):
+            normalized_recipients.append(normalized)
+
+    if not normalized_recipients:
+        return JsonResponse(
+            {"success": False, "message": "No valid E.164 phone numbers were provided."},
+            status=400,
+        )
+
     at_initialize(username=settings.AFRICASTALKING_USERNAME, api_key=settings.AFRICASTALKING_API_KEY)
     sms = SMS
     try:
-        result = sms.send(message=message, recipients=recipients, from_="SafePath")
-        return JsonResponse({"success": True, "result": result})
+        send_options = {"message": message.strip(), "recipients": normalized_recipients}
+        if settings.AFRICASTALKING_SENDER_ID:
+            send_options["from_"] = settings.AFRICASTALKING_SENDER_ID
+        result = sms.send(**send_options)
+        return JsonResponse({"success": True, "recipients": normalized_recipients, "result": result})
     except Exception as exc:
         return JsonResponse({"success": False, "error": str(exc)}, status=500)

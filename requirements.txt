@@ -1,0 +1,6 @@
+Django>=6.0
+djangorestframework>=3.20
+django-cors-headers>=4.0
+requests>=2.31
+openai>=1.0
+africastalking>=1.0
