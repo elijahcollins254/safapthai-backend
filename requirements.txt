@@ -1,5 +1,5 @@
 Django>=6.0
-djangorestframework>=3.20
+djangorestframework>=3.18,<3.19
 django-cors-headers>=4.0
 requests>=2.31
 openai>=1.0
