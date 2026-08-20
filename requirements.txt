@@ -4,3 +4,5 @@ django-cors-headers>=4.0
 requests>=2.31
 openai>=1.0
 africastalking>=1.0
+python-dotenv>=1.0
+psycopg[binary]>=3.1.8
