@@ -39,6 +39,8 @@ uv run python manage.py runserver
 
 Your Django application is now available at `http://localhost:8000`.
 
+The Vercel build runs `python manage.py migrate --noinput` so the SQLite tables are present in the deployed function. Redeploy the backend after adding or changing migrations.
+
 ## One-Click Deploy
 
 Deploy the example using [Vercel](https://vercel.com?utm_source=github&utm_medium=readme&utm_campaign=vercel-examples):
