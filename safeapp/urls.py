@@ -2,6 +2,8 @@ from django.urls import path
 
 from .views import (
     HazardListView,
+    MapPersonListCreateView,
+    MapZoneListCreateView,
     ShelterListView,
     generate_alert_message,
     recommend_route,
@@ -12,6 +14,8 @@ from .views import (
 urlpatterns = [
     path("hazards/", HazardListView.as_view(), name="hazard-list"),
     path("shelters/", ShelterListView.as_view(), name="shelter-list"),
+    path("people/", MapPersonListCreateView.as_view(), name="map-person-list-create"),
+    path("zones/", MapZoneListCreateView.as_view(), name="map-zone-list-create"),
     path("simulate/", simulate_disaster, name="simulate-disaster"),
     path("route/recommend/", recommend_route, name="recommend-route"),
     path("alert/generate/", generate_alert_message, name="generate-alert"),

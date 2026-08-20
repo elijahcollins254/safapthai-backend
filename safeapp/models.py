@@ -70,3 +70,38 @@ class Incident(models.Model):
 
     def __str__(self):
         return f"{self.incident_type} - {self.severity}"
+
+
+class MapPerson(models.Model):
+    STATUS_CHOICES = [
+        ("safe", "Safe"),
+        ("at_risk", "At risk"),
+    ]
+
+    name = models.CharField(max_length=128)
+    phone = models.CharField(max_length=32, blank=True)
+    details = models.TextField(blank=True)
+    latitude = models.FloatField()
+    longitude = models.FloatField()
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default="safe")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+
+class MapZone(models.Model):
+    ZONE_CHOICES = [
+        ("safe", "Safe"),
+        ("at_risk", "At risk"),
+        ("hazard", "Hazard"),
+    ]
+
+    name = models.CharField(max_length=128)
+    zone_type = models.CharField(max_length=16, choices=ZONE_CHOICES)
+    details = models.TextField(blank=True)
+    coordinates = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name

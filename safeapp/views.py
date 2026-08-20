@@ -8,13 +8,14 @@ import requests
 from django.conf import settings
 from django.db.models import QuerySet
 from django.http import JsonResponse
+from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from rest_framework import generics
 from rest_framework.parsers import JSONParser
 
-from .models import Hazard, Shelter
-from .serializers import HazardSerializer, ShelterSerializer
+from .models import Hazard, MapPerson, MapZone, Shelter
+from .serializers import HazardSerializer, MapPersonSerializer, MapZoneSerializer, ShelterSerializer
 
 
 class HazardListView(generics.ListAPIView):
@@ -25,6 +26,18 @@ class HazardListView(generics.ListAPIView):
 class ShelterListView(generics.ListAPIView):
     queryset = Shelter.objects.all()
     serializer_class = ShelterSerializer
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class MapPersonListCreateView(generics.ListCreateAPIView):
+    queryset = MapPerson.objects.order_by("-created_at")
+    serializer_class = MapPersonSerializer
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class MapZoneListCreateView(generics.ListCreateAPIView):
+    queryset = MapZone.objects.order_by("-created_at")
+    serializer_class = MapZoneSerializer
 
 
 def calculate_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:

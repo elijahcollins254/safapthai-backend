@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Hazard, Shelter, Incident
+from .models import Hazard, Incident, MapPerson, MapZone, Shelter
 
 
 @admin.register(Hazard)
@@ -19,3 +19,15 @@ class ShelterAdmin(admin.ModelAdmin):
 class IncidentAdmin(admin.ModelAdmin):
     list_display = ("incident_type", "severity", "status", "created_at")
     list_filter = ("incident_type", "severity", "status")
+
+
+@admin.register(MapPerson)
+class MapPersonAdmin(admin.ModelAdmin):
+    list_display = ("name", "phone", "status", "latitude", "longitude", "created_at")
+    list_filter = ("status",)
+
+
+@admin.register(MapZone)
+class MapZoneAdmin(admin.ModelAdmin):
+    list_display = ("name", "zone_type", "created_at")
+    list_filter = ("zone_type",)
