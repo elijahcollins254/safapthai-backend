@@ -331,6 +331,8 @@ def zone_centroid(coordinates: list[dict[str, float]]) -> tuple[float, float] | 
     )
 
 
+@csrf_exempt
+@require_http_methods(["POST"])
 def send_zone_route_sms(request):
     data = JSONParser().parse(request)
     zone_id = data.get("zone_id")
