@@ -18,6 +18,17 @@ from .models import Hazard, MapPerson, MapZone, Shelter
 from .serializers import HazardSerializer, MapPersonSerializer, MapZoneSerializer, ShelterSerializer, point_in_polygon
 
 
+def normalize_phone_number(phone: str) -> str | None:
+    normalized = re.sub(r"[\s()-]", "", phone)
+    if normalized.startswith("00"):
+        normalized = f"+{normalized[2:]}"
+    elif normalized.startswith("254"):
+        normalized = f"+{normalized}"
+    elif normalized.startswith("07") or normalized.startswith("01"):
+        normalized = f"+254{normalized[1:]}"
+    return normalized if re.fullmatch(r"\+[1-9]\d{7,14}", normalized) else None
+
+
 class HazardListView(generics.ListAPIView):
     queryset = Hazard.objects.all()
     serializer_class = HazardSerializer
@@ -297,8 +308,8 @@ def send_sms_notification(request):
     for recipient in recipients:
         if not isinstance(recipient, str):
             continue
-        normalized = re.sub(r"[\s()-]", "", recipient)
-        if re.fullmatch(r"\+[1-9]\d{7,14}", normalized):
+        normalized = normalize_phone_number(recipient)
+        if normalized:
             normalized_recipients.append(normalized)
 
     if not normalized_recipients:
@@ -377,6 +388,10 @@ def send_zone_route_sms(request):
         if not person.phone:
             skipped.append({"person": person.name, "reason": "no phone number"})
             continue
+        phone_number = normalize_phone_number(person.phone)
+        if not phone_number:
+            skipped.append({"person": person.name, "reason": f"invalid phone number: {person.phone}"})
+            continue
 
         origin = (person.latitude, person.longitude)
         route_options = []
@@ -404,11 +419,11 @@ def send_zone_route_sms(request):
             f"is {travel_minutes} minutes. Avoid active hazard areas and follow local instructions."
         )
         try:
-            send_options = {"message": message, "recipients": [person.phone]}
+            send_options = {"message": message, "recipients": [phone_number]}
             if settings.AFRICASTALKING_SENDER_ID:
                 send_options["sender_id"] = settings.AFRICASTALKING_SENDER_ID
             sms.send(**send_options)
-            sent.append({"person": person.name, "phone": person.phone, "zone": destination_zone.name, "message": message})
+            sent.append({"person": person.name, "phone": phone_number, "zone": destination_zone.name, "message": message})
         except Exception as exc:
             skipped.append({"person": person.name, "reason": str(exc)})
 
