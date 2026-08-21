@@ -15,7 +15,7 @@ from rest_framework import generics
 from rest_framework.parsers import JSONParser
 
 from .models import Hazard, MapPerson, MapZone, Shelter
-from .serializers import HazardSerializer, MapPersonSerializer, MapZoneSerializer, ShelterSerializer
+from .serializers import HazardSerializer, MapPersonSerializer, MapZoneSerializer, ShelterSerializer, point_in_polygon
 
 
 class HazardListView(generics.ListAPIView):
@@ -320,3 +320,94 @@ def send_sms_notification(request):
         return JsonResponse({"success": True, "recipients": normalized_recipients, "result": result})
     except Exception as exc:
         return JsonResponse({"success": False, "error": str(exc)}, status=500)
+
+
+def zone_centroid(coordinates: list[dict[str, float]]) -> tuple[float, float] | None:
+    if not coordinates:
+        return None
+    return (
+        sum(float(point["lat"]) for point in coordinates) / len(coordinates),
+        sum(float(point["lng"]) for point in coordinates) / len(coordinates),
+    )
+
+
+def send_zone_route_sms(request):
+    data = JSONParser().parse(request)
+    zone_id = data.get("zone_id")
+    if zone_id is None:
+        return JsonResponse({"error": "zone_id is required"}, status=400)
+
+    try:
+        source_zone = MapZone.objects.get(id=zone_id)
+    except (MapZone.DoesNotExist, ValueError, TypeError):
+        return JsonResponse({"error": "zone was not found"}, status=404)
+
+    safe_zones = [
+        zone for zone in MapZone.objects.filter(zone_type="safe")
+        if zone_centroid(zone.coordinates)
+    ]
+    if not safe_zones:
+        return JsonResponse({"error": "no safe zones are configured"}, status=400)
+
+    people = [
+        person for person in MapPerson.objects.all()
+        if point_in_polygon(person.latitude, person.longitude, source_zone.coordinates)
+    ]
+    if not people:
+        return JsonResponse({"success": True, "zone": source_zone.name, "sent": [], "skipped": []})
+
+    if not settings.AFRICASTALKING_USERNAME or not settings.AFRICASTALKING_API_KEY:
+        return JsonResponse(
+            {"success": False, "message": "Africa's Talking is not configured"},
+            status=503,
+        )
+
+    active_hazards = Hazard.objects.filter(status="active")
+    africastalking.initialize(
+        username=settings.AFRICASTALKING_USERNAME,
+        api_key=settings.AFRICASTALKING_API_KEY,
+    )
+    sms = africastalking.SMS
+    sent = []
+    skipped = []
+
+    for person in people:
+        if not person.phone:
+            skipped.append({"person": person.name, "reason": "no phone number"})
+            continue
+
+        origin = (person.latitude, person.longitude)
+        route_options = []
+        for safe_zone in safe_zones:
+            destination = zone_centroid(safe_zone.coordinates)
+            if destination is None:
+                continue
+            route_response = get_google_route(origin, destination)
+            route = build_route_payload(route_response, origin, destination)
+            unsafe = any(
+                segment_intersects_hazard(origin, destination, hazard)
+                for hazard in active_hazards
+            )
+            route_options.append((unsafe, route["duration_seconds"], route, safe_zone))
+
+        if not route_options:
+            skipped.append({"person": person.name, "reason": "no safe route found"})
+            continue
+
+        _, _, route, destination_zone = min(route_options, key=lambda option: (option[0], option[1]))
+        travel_minutes = max(1, round(route["duration_seconds"] / 60))
+        message = (
+            f"SAFEPATH ALERT: {person.name}, leave your current area and proceed to "
+            f"{destination_zone.name}. Follow the safest available route; estimated travel time "
+            f"is {travel_minutes} minutes. Avoid active hazard areas and follow local instructions."
+        )
+        try:
+            send_options = {"message": message, "recipients": [person.phone]}
+            if settings.AFRICASTALKING_SENDER_ID:
+                send_options["sender_id"] = settings.AFRICASTALKING_SENDER_ID
+            sms.send(**send_options)
+            sent.append({"person": person.name, "phone": person.phone, "zone": destination_zone.name, "message": message})
+        except Exception as exc:
+            skipped.append({"person": person.name, "reason": str(exc)})
+
+    return JsonResponse({"success": True, "zone": source_zone.name, "sent": sent, "skipped": skipped})

@@ -8,6 +8,7 @@ from .views import (
     generate_alert_message,
     recommend_route,
     send_sms_notification,
+    send_zone_route_sms,
     simulate_disaster,
 )
 
@@ -20,4 +21,5 @@ urlpatterns = [
     path("route/recommend/", recommend_route, name="recommend-route"),
     path("alert/generate/", generate_alert_message, name="generate-alert"),
     path("alert/sms/", send_sms_notification, name="send-sms"),
+    path("alert/zone-sms/", send_zone_route_sms, name="send-zone-sms"),
 ]
