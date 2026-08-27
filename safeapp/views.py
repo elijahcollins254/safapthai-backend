@@ -176,6 +176,63 @@ def get_google_route(origin: tuple[float, float], destination: tuple[float, floa
     return response.json()
 
 
+def hazard_exit_candidates(origin: tuple[float, float], coordinates: list[dict[str, float]]) -> list[tuple[float, float]]:
+    if len(coordinates) < 3:
+        return []
+
+    center_latitude = sum(point["lat"] for point in coordinates) / len(coordinates)
+    center_longitude = sum(point["lng"] for point in coordinates) / len(coordinates)
+    longitude_scale = max(math.cos(math.radians(center_latitude)), 0.1)
+    candidates = []
+
+    for index, current in enumerate(coordinates):
+        previous = coordinates[index - 1]
+        segment_latitude = current["lat"] - previous["lat"]
+        segment_longitude = (current["lng"] - previous["lng"]) * longitude_scale
+        segment_length = math.hypot(segment_latitude, segment_longitude)
+        if not segment_length:
+            continue
+
+        origin_latitude = origin[0] - previous["lat"]
+        origin_longitude = (origin[1] - previous["lng"]) * longitude_scale
+        fraction = max(0, min(1, (origin_latitude * segment_latitude + origin_longitude * segment_longitude) / (segment_length ** 2)))
+        boundary_latitude = previous["lat"] + fraction * segment_latitude
+        boundary_longitude = previous["lng"] + fraction * (current["lng"] - previous["lng"])
+        outward_latitude = boundary_latitude - center_latitude
+        outward_longitude = boundary_longitude - center_longitude
+        outward_length = math.hypot(outward_latitude, outward_longitude) or 1
+        candidates.append((boundary_latitude + outward_latitude / outward_length * 0.00025, boundary_longitude + outward_longitude / outward_length * 0.00025))
+
+    return candidates
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def recommend_exit_route(request):
+    data = JSONParser().parse(request)
+    user_lat = data.get("latitude")
+    user_lng = data.get("longitude")
+    hazard_zone = data.get("hazard_zone")
+
+    if user_lat is None or user_lng is None or not isinstance(hazard_zone, list):
+        return JsonResponse({"error": "latitude, longitude, and hazard_zone are required"}, status=400)
+
+    origin = (float(user_lat), float(user_lng))
+    candidates = hazard_exit_candidates(origin, hazard_zone)
+    routes = []
+    for destination in candidates:
+        route_response = get_google_route(origin, destination)
+        payload = build_route_payload(route_response, origin, destination)
+        if payload["distance_meters"]:
+            routes.append({**payload, "destination": {"latitude": destination[0], "longitude": destination[1]}})
+
+    if not routes:
+        return JsonResponse({"message": "No exit route found", "route": None})
+
+    shortest_route = min(routes, key=lambda route: route["distance_meters"])
+    return JsonResponse({"route": shortest_route})
+
+
 def simplify_route(route_response: dict[str, Any], hazard_zones: QuerySet[Hazard], shelter: Shelter, origin: tuple[float, float], destination: tuple[float, float]) -> dict[str, Any]:
     payload = build_route_payload(route_response, origin, destination)
     hazard_names = []
