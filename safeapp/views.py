@@ -88,7 +88,33 @@ def segment_intersects_hazard(origin: tuple[float, float], destination: tuple[fl
 
 
 def sample_points_from_polyline(polyline: str) -> list[tuple[float, float]]:
-    return []
+    if not polyline:
+        return []
+
+    points = []
+    latitude = 0
+    longitude = 0
+    index = 0
+    while index < len(polyline):
+        coordinates = []
+        for _ in range(2):
+            result = 0
+            shift = 0
+            while True:
+                if index >= len(polyline):
+                    return points
+                byte = ord(polyline[index]) - 63
+                index += 1
+                result |= (byte & 0x1F) << shift
+                shift += 5
+                if byte < 0x20:
+                    break
+            value = ~(result >> 1) if result & 1 else result >> 1
+            coordinates.append(value)
+        latitude += coordinates[0]
+        longitude += coordinates[1]
+        points.append((latitude / 100000, longitude / 100000))
+    return points
 
 
 def build_route_payload(route_response: dict[str, Any], origin: tuple[float, float], destination: tuple[float, float]) -> dict[str, Any]:
