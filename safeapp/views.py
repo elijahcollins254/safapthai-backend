@@ -139,7 +139,7 @@ def build_route_payload(route_response: dict[str, Any], origin: tuple[float, flo
         legs = [
             {
                 "distance_meters": first_route.get("distanceMeters", 0),
-                "duration_seconds": first_route.get("durationSeconds", 0),
+                "duration_seconds": total_duration,
             }
         ]
     else:
@@ -154,23 +154,25 @@ def build_route_payload(route_response: dict[str, Any], origin: tuple[float, flo
     }
 
 
-def get_google_route(origin: tuple[float, float], destination: tuple[float, float]) -> dict[str, Any]:
+def get_google_route(origin: tuple[float, float], destination: tuple[float, float], travel_mode: str = "DRIVE") -> dict[str, Any]:
     key = settings.GOOGLE_MAPS_API_KEY
     if not key:
         return {}
 
     url = "https://routes.googleapis.com/directions/v2:computeRoutes"
-    body = {
+    body: dict[str, Any] = {
         "origin": {
             "location": {"latLng": {"latitude": origin[0], "longitude": origin[1]}},
         },
         "destination": {
             "location": {"latLng": {"latitude": destination[0], "longitude": destination[1]}},
         },
-        "travelMode": "DRIVE",
-        "computeAlternativeRoutes": True,
-        "routeModifiers": {"avoidTolls": True},
+        "travelMode": travel_mode,
     }
+    if travel_mode in {"DRIVE", "BICYCLE", "TWO_WHEELER"}:
+        body["computeAlternativeRoutes"] = True
+    if travel_mode == "DRIVE":
+        body["routeModifiers"] = {"avoidTolls": True}
 
     headers = {
         "Content-Type": "application/json",
@@ -381,8 +383,11 @@ def recommend_route(request):
     data = JSONParser().parse(request)
     user_lat = data.get("latitude")
     user_lng = data.get("longitude")
+    travel_mode = str(data.get("travel_mode", "DRIVE")).upper()
+    if travel_mode == "BIKE":
+        travel_mode = "BICYCLE"
 
-    if user_lat is None or user_lng is None:
+    if user_lat is None or user_lng is None or travel_mode not in {"DRIVE", "WALK", "BICYCLE"}:
         return JsonResponse({"error": "latitude and longitude are required"}, status=400)
 
     shelters = Shelter.objects.filter(status="open")
@@ -393,7 +398,7 @@ def recommend_route(request):
     origin = (float(user_lat), float(user_lng))
     for shelter in shelters:
         destination = (shelter.latitude, shelter.longitude)
-        route_response = get_google_route(origin, destination)
+        route_response = get_google_route(origin, destination, travel_mode)
         route_options = route_response.get("routes", [])
         for route_option in route_options or [{}]:
             route_data = simplify_route({"routes": [route_option]} if route_option else {}, hazards, hazard_zones, shelter, origin, destination)
