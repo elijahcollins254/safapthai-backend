@@ -72,6 +72,13 @@ def route_intersects_hazard(route_points: list[tuple[float, float]], hazard: Haz
     return False
 
 
+def route_intersects_zone(route_points: list[tuple[float, float]], zone: MapZone) -> bool:
+    return any(
+        point_in_polygon(latitude, longitude, zone.coordinates)
+        for latitude, longitude in route_points
+    )
+
+
 def segment_intersects_hazard(origin: tuple[float, float], destination: tuple[float, float], hazard: Hazard) -> bool:
     (x1, y1), (x2, y2) = origin, destination
     cx, cy = hazard.latitude, hazard.longitude
@@ -126,7 +133,8 @@ def build_route_payload(route_response: dict[str, Any], origin: tuple[float, flo
     if route_response.get("routes"):
         first_route = route_response["routes"][0]
         total_distance = first_route.get("distanceMeters", 0)
-        total_duration = first_route.get("durationSeconds", 0)
+        duration = first_route.get("duration", "0s")
+        total_duration = int(float(str(duration).removesuffix("s")))
         overview_polyline = first_route.get("polyline", {}).get("encodedPolyline", "")
         legs = [
             {
@@ -167,6 +175,7 @@ def get_google_route(origin: tuple[float, float], destination: tuple[float, floa
     headers = {
         "Content-Type": "application/json",
         "X-Goog-Api-Key": key,
+        "X-Goog-FieldMask": "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline",
     }
 
     response = requests.post(url, headers=headers, json=body, timeout=15)
@@ -233,7 +242,7 @@ def recommend_exit_route(request):
     return JsonResponse({"route": shortest_route})
 
 
-def simplify_route(route_response: dict[str, Any], hazard_zones: QuerySet[Hazard], shelter: Shelter, origin: tuple[float, float], destination: tuple[float, float]) -> dict[str, Any]:
+def simplify_route(route_response: dict[str, Any], hazards: list[Hazard], hazard_zones: list[MapZone], shelter: Shelter, origin: tuple[float, float], destination: tuple[float, float]) -> dict[str, Any]:
     payload = build_route_payload(route_response, origin, destination)
     hazard_names = []
     route_points = []
@@ -246,9 +255,14 @@ def simplify_route(route_response: dict[str, Any], hazard_zones: QuerySet[Hazard
         route_points = [origin, destination]
 
     unsafe = False
-    for hazard in hazard_zones.filter(status="active"):
+    for hazard in hazards:
         if route_intersects_hazard(route_points, hazard) or segment_intersects_hazard(origin, destination, hazard):
             hazard_names.append(hazard.name)
+            unsafe = True
+
+    for zone in hazard_zones:
+        if route_intersects_zone(route_points, zone):
+            hazard_names.append(zone.name)
             unsafe = True
 
     score = 100
@@ -320,16 +334,20 @@ def recommend_route(request):
         return JsonResponse({"error": "latitude and longitude are required"}, status=400)
 
     shelters = Shelter.objects.filter(status="open")
-    hazards = Hazard.objects.filter(status="active")
+    hazards = list(Hazard.objects.filter(status="active"))
+    hazard_zones = list(MapZone.objects.filter(zone_type="hazard"))
     recommendations = []
 
     origin = (float(user_lat), float(user_lng))
     for shelter in shelters:
         destination = (shelter.latitude, shelter.longitude)
         route_response = get_google_route(origin, destination)
-        route_data = simplify_route(route_response, hazards, shelter, origin, destination)
-        if not route_data["unsafe"]:
-            recommendations.append(route_data)
+        route_options = route_response.get("routes", [])
+        for route_option in route_options or [{}]:
+            route_data = simplify_route({"routes": [route_option]} if route_option else {}, hazards, hazard_zones, shelter, origin, destination)
+            if not route_data["unsafe"]:
+                recommendations.append(route_data)
+                break
 
     recommendations.sort(key=lambda item: (item["unsafe"], -item["safety_score"], item["duration_seconds"]))
 
