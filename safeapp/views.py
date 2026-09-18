@@ -297,6 +297,58 @@ def build_ai_prompt(route_data: dict[str, Any], hazard_zones: list[dict[str, Any
     )
 
 
+def generate_route_sms(person: MapPerson, source_zone: MapZone, destination_zone: MapZone, route: dict[str, Any], warnings: list[str]) -> str:
+    travel_minutes = max(1, round(route["duration_seconds"] / 60))
+    distance_km = route["distance_meters"] / 1000
+    warning_text = ", ".join(warnings) if warnings else "no active hazard areas"
+    fallback = (
+        f"SAFEPATH ALERT, {person.name}: Please leave {source_zone.name} and go to {destination_zone.name}. "
+        f"Route: {distance_km:.1f} km, about {travel_minutes} minutes. Avoid: {warning_text}. "
+        "Follow official instructions and call local emergency services if you are in immediate danger."
+    )
+
+    if not settings.OPENAI_API_KEY:
+        return fallback
+
+    try:
+        client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0.2,
+            max_tokens=180,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Write one concise emergency SMS in plain text. Use the supplied facts only; never invent a street, ETA, "
+                        "distance, or hazard. Address the recipient by name. Include the destination, route distance, estimated minutes, and an explicit "
+                        "Avoid list. Use natural capitalization, commas, full stops, and one exclamation mark only if it improves urgency. "
+                        "Do not use markdown, emojis, headings, or a sign-off. Keep it under 480 characters."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Recipient: {person.name}\n"
+                        f"Current area: {source_zone.name}\n"
+                        f"Destination: {destination_zone.name}\n"
+                        f"Route distance: {distance_km:.1f} km\n"
+                        f"Estimated travel time: {travel_minutes} minutes\n"
+                        f"Places or hazards to avoid: {warning_text}\n"
+                        "Write the SMS now."
+                    ),
+                },
+            ],
+        )
+        message = response.choices[0].message.content.strip()
+        required_facts = [destination_zone.name, str(travel_minutes), "Avoid"]
+        if message and all(fact.lower() in message.lower() for fact in required_facts):
+            return message[:480]
+        return fallback
+    except Exception:
+        return fallback
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def simulate_disaster(request):
@@ -476,7 +528,8 @@ def send_zone_route_sms(request):
             status=503,
         )
 
-    active_hazards = Hazard.objects.filter(status="active")
+    active_hazards = list(Hazard.objects.filter(status="active"))
+    hazard_zones = list(MapZone.objects.filter(zone_type="hazard"))
     africastalking.initialize(
         username=settings.AFRICASTALKING_USERNAME,
         api_key=settings.AFRICASTALKING_API_KEY,
@@ -501,24 +554,35 @@ def send_zone_route_sms(request):
             if destination is None:
                 continue
             route_response = get_google_route(origin, destination)
-            route = build_route_payload(route_response, origin, destination)
-            unsafe = any(
-                segment_intersects_hazard(origin, destination, hazard)
-                for hazard in active_hazards
-            )
-            route_options.append((unsafe, route["duration_seconds"], route, safe_zone))
+            for route_option in route_response.get("routes", []) or [{}]:
+                route = build_route_payload({"routes": [route_option]} if route_option else {}, origin, destination)
+                route_points = sample_points_from_polyline(route["polyline"])
+                if not route_points:
+                    route_points = [origin, destination]
+                warnings = [
+                    hazard.name for hazard in active_hazards
+                    if route_intersects_hazard(route_points, hazard)
+                    or segment_intersects_hazard(origin, destination, hazard)
+                ]
+                warnings.extend(
+                    zone.name for zone in hazard_zones
+                    if route_intersects_zone(route_points, zone)
+                )
+                avoid_names = [hazard.name for hazard in active_hazards]
+                avoid_names.extend(zone.name for zone in hazard_zones)
+                route_options.append((bool(warnings), route["duration_seconds"], route, safe_zone, avoid_names))
 
         if not route_options:
             skipped.append({"person": person.name, "reason": "no safe route found"})
             continue
 
-        _, _, route, destination_zone = min(route_options, key=lambda option: (option[0], option[1]))
-        travel_minutes = max(1, round(route["duration_seconds"] / 60))
-        message = (
-            f"SAFEPATH ALERT: {person.name}, leave your current area and proceed to "
-            f"{destination_zone.name}. Follow the safest available route; estimated travel time "
-            f"is {travel_minutes} minutes. Avoid active hazard areas and follow local instructions."
-        )
+        safe_options = [option for option in route_options if not option[0]]
+        if not safe_options:
+            skipped.append({"person": person.name, "reason": "no safe route found"})
+            continue
+
+        _, _, route, destination_zone, warnings = min(safe_options, key=lambda option: option[1])
+        message = generate_route_sms(person, source_zone, destination_zone, route, warnings)
         try:
             send_options = {"message": message, "recipients": [phone_number]}
             if settings.AFRICASTALKING_SENDER_ID:
